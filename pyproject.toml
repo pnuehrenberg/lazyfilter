@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lazyfilter"
+version = "0.0.1"
+dependencies = ["numpy>=2.0", "pandas"]
+
+[tool.setuptools.packages.find]
+include = ["lazyfilter"]
+
+[tool.pyright]
+venvPath = "/home/paul/miniforge3/envs"
+venv = "widgets"
+
+[tool.ruff.lint]
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105"]
+
+[tool.ruff.format]
+docstring-code-format = true
