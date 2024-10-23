@@ -37,16 +37,57 @@ class ColumnFilter(HasDataframe):
         self.quantile_range = quantile_range
 
     @property
+    def _invalid_filter_type_error(self) -> ValueError:
+        return ValueError(
+            "specify exactly one of 'selected_values', 'value_range' or 'quantile_range'"
+        )
+
+    @property
+    def _no_dataframe_error(self) -> ValueError:
+        return ValueError("dataframe not specified")
+
+    @property
+    def filter_type(
+        self,
+    ) -> Literal["selected_values", "value_range", "quantile_range"]:
+        if self.selected_values is not None:
+            return "selected_values"
+        if self.value_range is not None:
+            return "value_range"
+        if self.quantile_range is not None:
+            return "quantile_range"
+        raise self._invalid_filter_type_error
+
+    @property
+    def value(self):
+        if (filter_type := self.filter_type) == "selected_values":
+            return self.selected_values
+        elif filter_type == "value_range":
+            return self.value_range
+        else:
+            return self.quantile_range
+
+    @property
     def is_active(self) -> bool:
         return self._is_active
 
     @is_active.setter
     def is_active(self, is_active: bool) -> None:
-        if is_active == self.is_active:
-            return
+        # if is_active == self.is_active:
+        #     return
         self._is_active = is_active
         if self.dataframe_filter is not None:
-            self.dataframe_filter.activate_dependent(self)
+            self.dataframe_filter.describe_dependent(self)
+
+    @property
+    def is_filtering(self) -> bool:
+        if self.selected_values is not None:
+            return len(self.selected_values) > 0
+        if self.quantile_range is not None:
+            return self.quantile_range != (0, 1)
+        if self.value_range is not None:
+            return self.value_range != (self.min, self.max)
+        raise self._invalid_filter_type_error
 
     @property
     def selected_values(self) -> tuple[Any, ...] | None:
@@ -97,7 +138,7 @@ class ColumnFilter(HasDataframe):
     @property
     def values(self) -> pd.Series | pd.Index:
         if self.dataframe is None:
-            raise ValueError("dataframe not specified")
+            raise self._no_dataframe_error
         if self.column == pd.Index:
             return self.dataframe.index
         return self.dataframe.loc[:, self.column]
@@ -160,11 +201,9 @@ class ColumnFilter(HasDataframe):
             [int(selection_type is not None) for selection_type in selection_types]
         )
         if num_specified_selection_types != 1:
-            raise ValueError(
-                "specify exactly one of 'selected_values', 'value_range' or 'quantile_range'"
-            )
+            raise self._invalid_filter_type_error
         if self.dataframe is None:
-            raise ValueError("dataframe not specified")
+            raise self._no_dataframe_error
         values = self.values
         if isinstance(values.dtype, pd.CategoricalDtype) and not values.dtype.ordered:
             values = values.astype(
@@ -185,7 +224,7 @@ class ColumnFilter(HasDataframe):
         if self.quantile_range is not None:
             value_range = self.quantiles(self.quantile_range)
         if value_range is None:
-            raise ValueError
+            raise self._invalid_filter_type_error
         # dtypes for value range, values and min and max correspond with each other
         lower: int | float = values.min()  # type: ignore
         upper: int | float = values.max()  # type: ignore
@@ -220,13 +259,13 @@ class ColumnFilter(HasDataframe):
             dataframe = self.dataframe
         with self.on_dataframe(dataframe):
             if self.dataframe is None:
-                raise ValueError("dataframe not specified")
+                raise self._no_dataframe_error
             if (selection := self.selection).all():
                 return self.dataframe
             return self.dataframe.loc[selection]
 
     def describe(
-        self, dataframe=None, conditional=False
+        self, dataframe=None
     ) -> (
         tuple[Literal["quantile_range"], tuple[float, float], tuple[float, float]]
         | tuple[
@@ -243,15 +282,21 @@ class ColumnFilter(HasDataframe):
             if self.quantile_range is not None:
                 return "quantile_range", (0, 1), self.quantile_range
             if self.value_range is not None:
+                self.value_range = (
+                    max(self.min, self.value_range[0]),
+                    min(self.max, self.value_range[1]),
+                )
                 return "value_range", (self.min, self.max), self.value_range
             if self.selected_values is not None:
-                unique_values = self.unique_values
-                if conditional:
-                    unique_values = unique_values[np.isin(unique_values, self.values)]
+                unique_values = tuple(np.asarray(self.unique_values).tolist())
+                selected_values = tuple(
+                    [value for value in self.selected_values if value in unique_values]
+                )
+                self.selected_values = selected_values
                 return (
                     "selected_values",
-                    tuple(np.asarray(unique_values).tolist()),
-                    tuple(np.asarray(self.selected_values).tolist()),
+                    unique_values,
+                    selected_values,
                 )
             return "none", None, None
 
@@ -261,23 +306,46 @@ class ColumnFilter(HasDataframe):
         selected_values: Optional[Iterable[Any]] = None,
         value_range: Optional[tuple[float, float] | tuple[int, int]] = None,
         quantile_range: Optional[tuple[float, float]] = None,
+        validate_selection: bool = False,
+        reset_on_error: bool = False,
     ) -> None:
         selection_types = [selected_values, value_range, quantile_range]
         num_specified_selection_types = sum(
             [int(selection_type is not None) for selection_type in selection_types]
         )
         if num_specified_selection_types != 1:
-            raise ValueError(
-                "specify exactly one of 'selected_values', 'value_range' or 'quantile_range'"
-            )
-        if selected_values is not None:
-            self.selected_values = selected_values
-            return
-        if value_range is not None:
-            self.value_range = value_range
-            return
-        if quantile_range is not None:
-            self.quantile_range = quantile_range
+            raise self._invalid_filter_type_error
+        try:
+            if selected_values is not None:
+                if (
+                    validate_selection
+                    and not np.isin(
+                        np.asarray(selected_values), self.unique_values
+                    ).all()
+                ):
+                    raise AssertionError(f"invalid value selection: {selected_values}")
+                self.selected_values = selected_values
+                return
+            if value_range is not None:
+                if validate_selection and (
+                    value_range[0] < self.min or value_range[1] > self.max
+                ):
+                    raise AssertionError(
+                        f"invalid value range: {value_range} [min: {self.min}, max: {self.max}]"
+                    )
+                self.value_range = value_range
+                return
+            if quantile_range is not None:
+                if validate_selection and (
+                    quantile_range[0] < 0 or quantile_range[1] > 1
+                ):
+                    raise AssertionError(f"invalid quantile range: {quantile_range}")
+                self.quantile_range = quantile_range
+        except AssertionError as e:
+            if reset_on_error:
+                self.reset()
+            else:
+                raise e
 
     def reset(self) -> None:
         if self.selected_values is not None:

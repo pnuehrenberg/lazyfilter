@@ -12,10 +12,13 @@ include = ["lazyfilter"]
 
 [tool.pyright]
 venvPath = "/home/paul/miniforge3/envs"
-venv = "widgets"
+venv = "vuetify"
 
 [tool.ruff.lint]
 ignore = ["D100", "D101", "D102", "D103", "D104", "D105"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy" # Accepts: "google", "numpy", or "pep257".
 
 [tool.ruff.format]
 docstring-code-format = true
