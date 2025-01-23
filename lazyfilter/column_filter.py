@@ -146,8 +146,8 @@ class ColumnFilter(HasDataframe):
     @property
     def unique_values(self) -> np.ndarray:
         values = self.values
-        if isinstance(values.dtype, pd.CategoricalDtype):
-            return np.asarray(values.dtype.categories)
+        # if np.isdtype(np.asarray(values).dtype, "bool"):
+        #     return np.asarray([True, False])
         return np.unique(values)
 
     @property

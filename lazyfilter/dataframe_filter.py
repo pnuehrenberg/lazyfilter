@@ -163,7 +163,7 @@ class DataFrameFilter(HasDataframe):
 
     def update(
         self,
-        selection: dict[str | type[pd.Index], tuple],
+        selection: dict[str | Type[pd.Index], tuple],
         *,
         reset: bool = False,
         validate_selection: bool = False,
