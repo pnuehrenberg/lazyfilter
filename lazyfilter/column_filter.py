@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, Optional, Type
@@ -16,7 +18,7 @@ class ColumnFilter(HasDataframe):
         self,
         column: str | Type[pd.Index],
         *,
-        dataframe: Optional[pd.DataFrame] | HasDataframe = None,
+        dataframe: Optional[pd.DataFrame | HasDataframe] = None,
         selected_values: Optional[Iterable[Any]] = None,
         value_range: Optional[tuple[int, int] | tuple[float, float]] = None,
         quantile_range: Optional[tuple[float, float]] = None,
@@ -141,6 +143,8 @@ class ColumnFilter(HasDataframe):
             raise self._no_dataframe_error
         if self.column == pd.Index:
             return self.dataframe.index
+        if not isinstance(self.column, str):
+            raise ValueError("Column must be either pd.Index or a string")
         return self.dataframe.loc[:, self.column]
 
     @property
@@ -176,8 +180,8 @@ class ColumnFilter(HasDataframe):
             if isinstance(values.dtype, pd.CategoricalDtype) and values.dtype.ordered:
                 dtype = values.dtype
             else:
-                dtype = pd.CategoricalDtype(categories=np.unique(values), ordered=True)
-            values = pd.Categorical(values, dtype=dtype)
+                dtype = pd.CategoricalDtype(categories=list(np.unique(values)), ordered=True)
+            values = pd.Categorical(list(values), dtype=dtype)
             codes = values.codes
             return tuple(
                 values.categories[np.quantile(np.asarray(codes), quantiles).astype(int)]
@@ -195,7 +199,7 @@ class ColumnFilter(HasDataframe):
             self.dataframe = _dataframe
 
     @property
-    def selection(self):
+    def selection(self) -> pd.Series[bool]:
         selection_types = [self.selected_values, self.value_range, self.quantile_range]
         num_specified_selection_types = sum(
             [int(selection_type is not None) for selection_type in selection_types]
@@ -206,14 +210,13 @@ class ColumnFilter(HasDataframe):
             raise self._no_dataframe_error
         values = self.values
         if isinstance(values.dtype, pd.CategoricalDtype) and not values.dtype.ordered:
-            values = values.astype(
-                pd.CategoricalDtype(categories=np.unique(values), ordered=True)
-            )
+            dtype = pd.CategoricalDtype(categories=list(np.unique(values)), ordered=True)
+            values = pd.Series(values, dtype=dtype)
         if self.selected_values is not None:
             if len(self.selected_values) == 0:
                 return pd.Series(
                     np.repeat(True, len(values)), index=self.dataframe.index
-                )
+                ).astype(bool)
             return pd.Series(
                 np.isin(np.asarray(values), self.selected_values),
                 index=self.dataframe.index,
@@ -233,7 +236,7 @@ class ColumnFilter(HasDataframe):
         if value_range[1] > upper:  # type: ignore
             value_range = value_range[0], upper
         if value_range == (self.min, self.max):
-            return pd.Series(np.repeat(True, len(values)), index=self.dataframe.index)
+            return pd.Series(np.repeat(True, len(values)), index=self.dataframe.index).astype(bool)
         above_lower = (
             (values >= value_range[0])
             if self.include_lower
@@ -244,7 +247,7 @@ class ColumnFilter(HasDataframe):
             if self.include_upper
             else (values < value_range[1])
         )
-        return pd.Series(above_lower & below_upper, index=self.dataframe.index)
+        return pd.Series(above_lower & below_upper, index=self.dataframe.index).astype(bool)
 
     @property
     def filtered_values(self) -> np.ndarray:

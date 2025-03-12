@@ -31,7 +31,7 @@ def lazy_filter(
         if isinstance(dtype, pd.CategoricalDtype):
             filter.selected_values = []
             continue
-        if np.issubdtype(dtype, int) or np.issubdtype(dtype, float):  # type: ignore
+        if "int" in str(dtype) or "float" in str(dtype):
             filter.value_range = (filter.min, filter.max)
             continue
         filter.selected_values = []
