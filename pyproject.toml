@@ -13,7 +13,7 @@ include = ["lazyfilter"]
 
 [tool.pyright]
 venvPath = "/home/paul/miniforge3/envs"
-venv = "vuetify"
+venv = "vassi"
 
 [tool.ruff.lint]
 ignore = ["D100", "D101", "D102", "D103", "D104", "D105"]
